@@ -25,10 +25,14 @@ class HelloController extends Controller
      * @param string $message the message to be echoed.
      * @return int Exit code
      */
-    public function actionIndex($message = 'hello worldtyrt')
+    public function actionIndex($message = 'hello world')
     {
         echo $message . "\n";
-
+        $this->ar();
         return ExitCode::OK;
+    }
+
+    private function ar(){
+        print_r("123");
     }
 }
