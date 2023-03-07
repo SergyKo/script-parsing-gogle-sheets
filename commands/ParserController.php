@@ -167,7 +167,6 @@ class ParserController extends Controller
                         $model->category_id = $id;
                         $model->save();
 
-
                     }
                 } catch (Exception $e) {
                     print_r("Ошибка с БД при записи Product! " . "\n" . $e->getMessage());
