@@ -1,10 +1,19 @@
 <?php
+
 namespace app\commands;
 require 'vendor/autoload.php';
 
+use app\models\Category;
+use app\models\Product;
+use app\models\Sheet;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use yii\base\BaseObject;
+use yii\base\Model;
 use yii\console\Controller;
 use yii\console\ExitCode;
+use yii\db\Exception;
 
 
 class ParserController extends Controller
@@ -17,18 +26,25 @@ class ParserController extends Controller
         $workSheetName = 'MA';
 
         $url = 'https://docs.google.com/spreadsheets/d/10En6qNTpYNeY_YFTWJ_3txXzvmOA7UxSCrKfKCFfaRw/edit#gid=1428297429';
-//        if (!$this->downloadXlsx($url, $filename)){
-//            print_r("Файл не загружен!");
+
+//        try {
+//            if (!$this->downloadXlsx($url, $filename)) {
+//                print_r("Файл не загружен!");
+//                exit();
+//            }
+//            print_r("Файл успешно загружен!");
+//        } catch (ErrorException $e){
+//            print_r("Ошибка загрузки файла! Или закройте таблицу!");
 //            exit();
 //        }
-//        print_r("Файл успешно загружен!");
 
         $this->parseXlsxFile($filename, $workSheetName);
 
         return ExitCode::OK;
     }
 
-    private function downloadXlsx($url, $filename){
+    private function downloadXlsx($url, $filename)
+    {
 
         $fName = 'table';
         $id = preg_match('/\/d\/(.+?)\//', $url, $matches) ? $matches[1] : null;
@@ -52,98 +68,117 @@ class ParserController extends Controller
         return true;
     }
 
-    private function parseXlsxFile($filename, $workSheetName )
+    /** Запись БД наименований листов
+     * @param $sheetNames
+     */
+    private function saveSheetsNames($sheetNames)
+    {
+        print_r("Сохранение наименований листов.");
+        foreach ($sheetNames as $name) {
+            $model = new Sheet();
+            $model->name = $name;
+            try {
+                if (!$model->findOne(['name' => $model->name])) {
+                    $model->save();
+                }
+            } catch (Exception $e) {
+                print_r("Ошибка с БД! " . "\n" . $e->getMessage());
+                exit();
+            }
+        }
+
+    }
+
+    private function parseXlsxFile($filename, $workSheetName)
     {
 
         // загружаем таблицу из файла
         $reader = IOFactory::createReader('Xlsx');
         $spreadsheet = $reader->load($filename);
 
-        // получаем нужный лист
-        $sheet = $spreadsheet->getSheetByName($workSheetName);
 
-        $data = [];
+        $sheetNames = $spreadsheet->getSheetNames();
+        $this->saveSheetsNames($sheetNames); // запись имен листов
+        // запись категорий и продуктов
 
-        // Проходимся по всем строкам до строки COOP
-        for ($row = 3; $row <= $sheet->getHighestRow(); $row++) {
+        $worksheet = $spreadsheet->getSheetByName($workSheetName);
+        $this->saveCategoryAndProduct($worksheet);
 
+    }
 
-            // Пропускаем пустые строки
-            if (empty(trim($sheet->getCell('A' . $row)->getValue()))) {
+    /**
+     * @param Worksheet $spreadsheet
+     */
+    private function saveCategoryAndProduct(Worksheet $spreadsheet)
+    {
+
+        // Поиск категорий и продуктов
+        $category = '';
+        $id = 0;
+        foreach ($spreadsheet->getRowIterator() as $row) {
+
+            $rowIndex = $row->getRowIndex();
+            if ($rowIndex < 3) {
                 continue;
             }
 
-            // Проверяем ячейку на наличие серого фона и жирного шрифта
-            $cellStyle = $sheet->getStyle('A' . $row);
-            $font = $cellStyle->getFont();
-            $fill = $cellStyle->getFill();
-            $isCategory = $font->getBold() && $fill->getStartColor()->getARGB() === 'FFBFBFBF';
+            $cell = $spreadsheet->getCell('A' . $rowIndex);
+            $style = $cell->getStyle();
 
-            // Если ячейка является категорией, то сохраняем её в массив
-            if ($isCategory) {
-                $categoryName = $sheet->getCell('A' . $row)->getValue();
-                $data[$categoryName] = [];
+            if (strlen($cell->getValue()) < 1) {
+                continue;
             }
-            // Иначе, если ячейка является продуктом, то сохраняем её в массив
-            else {
-                $productName = $sheet->getCell('A' . $row)->getValue();
-                $productData = [];
 
-                // Проходимся по всем месяцам и сохраняем бюджет для каждого месяца
-                for ($col = 2; $col <= $sheet->getHighestColumn(); $col++) {
-                    $month = $sheet->getCellByColumnAndRow($col, 3)->getValue();
-                    $budget = $sheet->getCellByColumnAndRow($col, $row)->getValue();
+            if ($cell->getValue() === 'CO-OP') {
+                print_r("CO-OP");
+                break;
+            }
 
-                    $productData[$month] = $budget;
+            // Проверка, является ли строка категорией
+            if ($style->getFont()->getBold() && $cell->getValue() !== 'Total') {
+                // Обработка категории
+                $category = $cell->getValue();
+                $model = new Category();
+                $model->name = $category;
+                try {
+                    if (!$model->findOne(['name' => $model->name])) {
+                        $model->save();
+                        $id = $model->id;
+
+                    }else{
+                        $id = $model->findOne(['name' => $model->name])->id;
+                    }
+                } catch (Exception $e) {
+                    print_r("Ошибка с БД при записи Category! " . "\n" . $e->getMessage());
+                    exit();
                 }
 
-                $data[array_key_last($data)][$productName] = $productData;
             }
+
+            // Проверка, является ли строка продуктом
+            if ($style->getFont()->getBold() === false && $cell->getValue() !== 'Total') {
+                // Обработка продукта
+                $productName = $cell->getValue();
+
+                $model = new Product();
+                $model->name = $productName;
+                try {
+                    if (!$model->findOne(['name' => $model->name])) {
+                        $model->category_id = $id;
+                        $model->save();
+
+
+                    }
+                } catch (Exception $e) {
+                    print_r("Ошибка с БД при записи Product! " . "\n" . $e->getMessage());
+                    exit();
+                }
+                // сохраняем каталог, забираем индекс
+                // сохраняем продукт, указывая индекс каталога
+
+            }
+
         }
 
-
-        print_r($data);
     }
-
 }
-
-
-//// Если текущая строка это строка COOP, то прерываем итерацию
-//if ($row->getRowIndex() == 109) {
-//    break;
-//}
-
-
-//
-//
-//print_r("qwr");
-//
-//exit();
-//
-//// загружаем таблицу из файла
-//$reader = IOFactory::createReader('Xlsx');
-//$spreadsheet = $reader->load($filename);
-//
-//// получаем нужный лист
-//$worksheet = $spreadsheet->getSheetByName('MA');
-//
-//$highestRow = $worksheet->getHighestRow();
-//$highestColumn = $worksheet->getHighestColumn();
-//
-//
-//
-//for ($row = 1; $row <= 14; ++$row) {
-//    for ($col = 'A'; $col <= 'N'; ++$col) {
-//
-//        $cellValue = $worksheet->getCell($col . $row)->getValue();
-//        print_r('col ' . $col ."  ".'row  '. $row ."  ". 'cellValue  '. $cellValue. "\n");
-////        echo "{$cellValue}\t";
-//    }
-//    echo "\n";
-//}
-
-//if (file_exists($fName . '.xlsx') || file_exists('~$' . $fName . '.xlsx')) {
-//    unlink($fName . '.xlsx');
-//    unlink('~$' . $fName . '.xlsx');
-//}
-
