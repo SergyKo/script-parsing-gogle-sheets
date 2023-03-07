@@ -14,18 +14,21 @@ use yii\base\Model;
 use yii\console\Controller;
 use yii\console\ExitCode;
 use yii\db\Exception;
+use Dotenv\Dotenv;
 
 
 class ParserController extends Controller
 {
 
+
     public function actionIndex($message = 'Parser start!')
     {
+
         echo $message . "\n";
         $filename = 'table.xlsx';
         $workSheetName = 'MA';
 
-        $url = 'https://docs.google.com/spreadsheets/d/10En6qNTpYNeY_YFTWJ_3txXzvmOA7UxSCrKfKCFfaRw/edit#gid=1428297429';
+        $url = $_ENV['GOOGLE_SHEET_URL'];
 
 //        try {
 //            if (!$this->downloadXlsx($url, $filename)) {

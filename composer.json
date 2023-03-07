@@ -21,7 +21,8 @@
         "guzzlehttp/guzzle": "^7.0",
         "google/apiclient": "^2.12",
         "phpoffice/phpspreadsheet": "1.27.1",
-        "doctrine/orm": "^2.14"
+        "doctrine/orm": "^2.14",
+        "vlucas/phpdotenv": "^5.5"
     },
     "require-dev": {
         "yiisoft/yii2-debug": "~2.1.0",
